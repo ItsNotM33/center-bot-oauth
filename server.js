@@ -48,10 +48,20 @@ app.get("/callback", async (req, res) => {
       })
     });
 
-    const tokenData = await tokenRes.json();
-console.log("TOKEN DATA:", tokenData);
+    // 🔥 DEBUG PROPRE
+    const raw = await tokenRes.text();
+    console.log("RAW TOKEN RESPONSE:", raw);
+
+    let tokenData;
+    try {
+      tokenData = JSON.parse(raw);
+    } catch (e) {
+      console.log("❌ JSON invalide");
+      return res.send("Erreur OAuth (réponse invalide)");
+    }
 
     if (!tokenData.access_token) {
+      console.log("❌ PAS DE TOKEN:", tokenData);
       return res.send("Erreur OAuth");
     }
 
@@ -81,7 +91,7 @@ console.log("TOKEN DATA:", tokenData);
     `);
 
   } catch (err) {
-    console.error(err);
+    console.error("ERREUR:", err);
     res.send("Erreur serveur");
   }
 });
