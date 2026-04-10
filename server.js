@@ -5,7 +5,7 @@ const app = express();
 
 // 🔑 CONFIG
 const CLIENT_ID = "1474946784043208846";
-const CLIENT_SECRET = YRiEOg38HAyOUzugonwyd4WoJ4-AHNbZ; // ✅ sécurisé
+const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = "https://center-bot-oauth.onrender.com/discord/callback";
 
 // page d'accueil
