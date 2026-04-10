@@ -18,7 +18,7 @@ app.get("/", (req, res) => {
 
 // redirection vers Discord
 app.get("/login", (req, res) => {
-  const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify guilds`;
+  const url = `https://discord.com/api/oauth2/authorize?client_id=${1474946784043208846}&response_type=code&redirect_uri=${encodeURIComponent(https://center-bot-oauth.onrender.com/discord/callback)}&scope=identify guilds`;
 
   res.redirect(url);
 });
