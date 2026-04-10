@@ -5,7 +5,7 @@ const app = express();
 
 // 🔑 CONFIG
 const CLIENT_ID = "1474946784043208846";
-const CLIENT_SECRET = "MkwQ7Pk6spj6hCZ3n2rB46DwI56h4x9i";
+const CLIENT_SECRET = process.env.CLIENT_SECRET; // ✅ sécurisé
 const REDIRECT_URI = "https://center-bot-oauth.onrender.com/discord/callback";
 
 // page d'accueil
@@ -16,21 +16,20 @@ app.get("/", (req, res) => {
   `);
 });
 
-// redirection vers Discord
+// login OAuth
 app.get("/login", (req, res) => {
-  const url = `https://discord.com/api/oauth2/authorize?client_id=${1474946784043208846}&response_type=code&redirect_uri=${encodeURIComponent(https://center-bot-oauth.onrender.com/discord/callback)}&scope=identify guilds`;
+  const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify guilds`;
 
   res.redirect(url);
 });
 
-// callback OAuth
-app.get("/callback", async (req, res) => {
+// callback (CORRIGÉ)
+app.get("/discord/callback", async (req, res) => {
   const code = req.query.code;
 
   if (!code) return res.send("Erreur: pas de code");
 
   try {
-    // échange code → token
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: {
@@ -47,7 +46,12 @@ app.get("/callback", async (req, res) => {
 
     const tokenData = await tokenRes.json();
 
-    // récup user
+    // sécurité
+    if (!tokenData.access_token) {
+      return res.send("Erreur OAuth");
+    }
+
+    // user
     const userRes = await fetch("https://discord.com/api/users/@me", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -56,7 +60,7 @@ app.get("/callback", async (req, res) => {
 
     const user = await userRes.json();
 
-    // récup serveurs
+    // guilds
     const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -65,7 +69,6 @@ app.get("/callback", async (req, res) => {
 
     const guilds = await guildsRes.json();
 
-    // réponse simple (PAS DE REDIRECTION EN BOUCLE)
     res.send(`
       <h1>Connecté ✅</h1>
       <p>Bienvenue ${user.username}</p>
