@@ -49,7 +49,7 @@ app.get("/callback", async (req, res) => {
     });
 
     const tokenData = await tokenRes.json();
-    console.log("TOKEN:", tokenData);
+console.log("TOKEN DATA:", tokenData);
 
     if (!tokenData.access_token) {
       return res.send("Erreur OAuth");
