@@ -1,101 +1,174 @@
-import express from "express";
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-
-dotenv.config();
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// CONFIG
-const CLIENT_ID = "1474946784043208846";
-const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const REDIRECT_URI = "https://center-bot-oauth.onrender.com/callback";
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI;
+const BOT_API_KEY = process.env.BOT_API_KEY;
 
-// PAGE ACCUEIL
-app.get("/", (req, res) => {
-  res.send(`
-    <h1>Login Discord</h1>
-    <a href="/login">Se connecter</a>
-  `);
-});
+const DATA_FILE = path.join(__dirname, 'authorized_users.json');
 
-// LOGIN
-app.get("/login", (req, res) => {
-  const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify guilds`;
-
-  res.redirect(url);
-});
-
-// CALLBACK
-app.get("/callback", async (req, res) => {
-  const code = req.query.code;
-
-  if (!code) return res.send("Pas de code");
-
+function readStore() {
   try {
-    // TOKEN
-    const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
-      method: "POST",
+    if (!fs.existsSync(DATA_FILE)) {
+      return { users: {} };
+    }
+    const raw = fs.readFileSync(DATA_FILE, 'utf8');
+    if (!raw.trim()) return { users: {} };
+    return JSON.parse(raw);
+  } catch {
+    return { users: {} };
+  }
+}
+
+function writeStore(data) {
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+}
+
+function ensureStore() {
+  if (!fs.existsSync(DATA_FILE)) {
+    writeStore({ users: {} });
+  }
+}
+
+function buildDiscordAuthUrl() {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    response_type: 'code',
+    redirect_uri: REDIRECT_URI,
+    scope: 'identify guilds',
+    prompt: 'consent',
+    state: crypto.randomBytes(16).toString('hex')
+  });
+
+  return `https://discord.com/oauth2/authorize?${params.toString()}`;
+}
+
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    ok: true,
+    service: 'center-bot-oauth'
+  });
+});
+
+app.get('/', (req, res) => {
+  res.send('center-bot-oauth online');
+});
+
+app.get('/discord/login', (req, res) => {
+  if (!CLIENT_ID || !REDIRECT_URI) {
+    return res.status(500).send('OAuth not configured.');
+  }
+
+  return res.redirect(buildDiscordAuthUrl());
+});
+
+app.get('/discord/callback', async (req, res) => {
+  try {
+    const code = req.query.code;
+    if (!code) {
+      return res.status(400).send('Missing OAuth code.');
+    }
+
+    const tokenResponse = await fetch('https://discord.com/api/oauth2/token', {
+      method: 'POST',
       headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
       body: new URLSearchParams({
         client_id: CLIENT_ID,
         client_secret: CLIENT_SECRET,
-        grant_type: "authorization_code",
-        code: code,
+        grant_type: 'authorization_code',
+        code: String(code),
         redirect_uri: REDIRECT_URI
       })
     });
 
-    // 🔥 DEBUG PROPRE
-    const raw = await tokenRes.text();
-    console.log("RAW TOKEN RESPONSE:", raw);
-
-    let tokenData;
-    try {
-      tokenData = JSON.parse(raw);
-    } catch (e) {
-      console.log("❌ JSON invalide");
-      return res.send("Erreur OAuth (réponse invalide)");
+    if (!tokenResponse.ok) {
+      const text = await tokenResponse.text();
+      return res.status(500).send(`Token exchange failed: ${text}`);
     }
 
-    if (!tokenData.access_token) {
-      console.log("❌ PAS DE TOKEN:", tokenData);
-      return res.send("Erreur OAuth");
-    }
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
 
-    // USER
-    const userRes = await fetch("https://discord.com/api/users/@me", {
+    const meResponse = await fetch('https://discord.com/api/users/@me', {
       headers: {
-        Authorization: `Bearer ${tokenData.access_token}`
+        Authorization: `Bearer ${accessToken}`
       }
     });
 
-    const user = await userRes.json();
+    if (!meResponse.ok) {
+      const text = await meResponse.text();
+      return res.status(500).send(`Failed to fetch user: ${text}`);
+    }
 
-    // GUILDS
-    const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
+    const me = await meResponse.json();
+
+    const guildsResponse = await fetch('https://discord.com/api/users/@me/guilds', {
       headers: {
-        Authorization: `Bearer ${tokenData.access_token}`
+        Authorization: `Bearer ${accessToken}`
       }
     });
 
-    const guilds = await guildsRes.json();
+    if (!guildsResponse.ok) {
+      const text = await guildsResponse.text();
+      return res.status(500).send(`Failed to fetch guilds: ${text}`);
+    }
 
-    res.send(`
-      <h1>✅ Connecté</h1>
-      <p>Utilisateur: ${user.username}</p>
-      <p>Serveurs: ${guilds.length}</p>
-      <a href="https://discord.gg/TON_INVITE">Rejoindre le serveur</a>
-    `);
+    const guilds = await guildsResponse.json();
 
-  } catch (err) {
-    console.error("ERREUR:", err);
-    res.send("Erreur serveur");
+    const store = readStore();
+    store.users[me.id] = {
+      guildIds: guilds.map(g => g.id),
+      username: me.username,
+      globalName: me.global_name || null,
+      syncedAt: Date.now()
+    };
+    writeStore(store);
+
+    return res.send(
+      `Compte Discord autorise avec succes.<br>` +
+      `Utilisateur : ${me.username} (${me.id})<br>` +
+      `Serveurs detectes : ${guilds.length}<br><br>` +
+      `Vous pouvez maintenant revenir sur Discord.`
+    );
+  } catch (error) {
+    console.error('[oauth callback error]', error);
+    return res.status(500).send('OAuth callback error.');
   }
 });
 
-app.listen(3000, () => {
-  console.log("Serveur lancé");
+app.get('/api/user-guilds/:userId', (req, res) => {
+  const providedKey = req.headers['x-api-key'];
+
+  if (!BOT_API_KEY || providedKey !== BOT_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const store = readStore();
+  const entry = store.users[req.params.userId];
+
+  if (!entry) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  return res.json({
+    userId: req.params.userId,
+    guildIds: Array.isArray(entry.guildIds) ? entry.guildIds : [],
+    syncedAt: entry.syncedAt || null,
+    username: entry.username || null,
+    globalName: entry.globalName || null
+  });
+});
+
+ensureStore();
+
+app.listen(PORT, () => {
+  console.log(`OAuth server listening on port ${PORT}`);
 });
