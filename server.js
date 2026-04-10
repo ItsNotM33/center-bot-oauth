@@ -1,35 +1,39 @@
 import express from "express";
 import fetch from "node-fetch";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 
-// 🔑 CONFIG
+// CONFIG
 const CLIENT_ID = "1474946784043208846";
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const REDIRECT_URI = "https://center-bot-oauth.onrender.com/discord/callback";
+const REDIRECT_URI = "https://center-bot-oauth.onrender.com/callback";
 
-// page d'accueil
+// PAGE ACCUEIL
 app.get("/", (req, res) => {
   res.send(`
-    <h1>Connexion Discord</h1>
-    <a href="/login">Se connecter avec Discord</a>
+    <h1>Login Discord</h1>
+    <a href="/login">Se connecter</a>
   `);
 });
 
-// login OAuth
+// LOGIN
 app.get("/login", (req, res) => {
   const url = `https://discord.com/api/oauth2/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=identify guilds`;
 
   res.redirect(url);
 });
 
-// callback (CORRIGÉ)
-app.get("/discord/callback", async (req, res) => {
+// CALLBACK
+app.get("/callback", async (req, res) => {
   const code = req.query.code;
 
-  if (!code) return res.send("Erreur: pas de code");
+  if (!code) return res.send("Pas de code");
 
   try {
+    // TOKEN
     const tokenRes = await fetch("https://discord.com/api/oauth2/token", {
       method: "POST",
       headers: {
@@ -45,13 +49,13 @@ app.get("/discord/callback", async (req, res) => {
     });
 
     const tokenData = await tokenRes.json();
+    console.log("TOKEN:", tokenData);
 
-    // sécurité
     if (!tokenData.access_token) {
       return res.send("Erreur OAuth");
     }
 
-    // user
+    // USER
     const userRes = await fetch("https://discord.com/api/users/@me", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -60,7 +64,7 @@ app.get("/discord/callback", async (req, res) => {
 
     const user = await userRes.json();
 
-    // guilds
+    // GUILDS
     const guildsRes = await fetch("https://discord.com/api/users/@me/guilds", {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`
@@ -70,9 +74,9 @@ app.get("/discord/callback", async (req, res) => {
     const guilds = await guildsRes.json();
 
     res.send(`
-      <h1>Connecté ✅</h1>
-      <p>Bienvenue ${user.username}</p>
-      <p>Tu es dans ${guilds.length} serveurs</p>
+      <h1>✅ Connecté</h1>
+      <p>Utilisateur: ${user.username}</p>
+      <p>Serveurs: ${guilds.length}</p>
       <a href="https://discord.gg/TON_INVITE">Rejoindre le serveur</a>
     `);
 
